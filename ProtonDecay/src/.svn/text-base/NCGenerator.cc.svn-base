@@ -1,0 +1,591 @@
+//nc generator  include deexcitation process, author : Jie Cheng , email : chengjie@ihep.ac.cn
+// NC six nuclear models :
+// -f 2 : model1 : genie+talys , event rate = 3.59*1e-5/s/20kton
+// -f 3 : model2 : nuwro-1 + talys , event rate = 2.885*1e-5/s/20kton
+// -f 4 : model3 : nuwro-2 + talys , event rate = 2.82586*1e-5/s/20kton
+// -f 5 : model4 : nuwro-3 + talys , event rate = 3.341*1e-5/s/20kton
+// -f 6 : model5 : nuwro-4 + talys , event rate = 3.28265*1e-5/s/20kton
+// -f 7 : model6 : nuwro-5 + talys , event rate = 2.14872*1e-5/s/20kton
+// difference between models, please see https://juno.ihep.ac.cn/cgi-bin/Dev_DocDB/ShowDocument?docid=3210
+//  CC nuclear model :
+//  -f 1 : genie + talys , event rate = 8.0*1e-5/s
+//  genie includes neutrino+C12 and neutrino+p interaction for NC and CC 
+//  nuwro only includes neutrino+C12
+#include <iostream>
+#include <fstream>
+#include <cassert>
+#include <CLHEP/Vector/ThreeVector.h>
+#include <CLHEP/Units/PhysicalConstants.h>
+#include <TROOT.h>
+#include <TRandom.h>
+#include <vector>
+#include <TSystem.h>
+#include <TFile.h>
+#include <TH1.h>
+#include <TTree.h>
+#include <cstdlib>
+#include <TChain.h>
+#include <TString.h>
+#include "deex.h"
+#include <map>
+
+using namespace std;
+using namespace CLHEP;
+
+void Usage();
+
+void ProcessArgs(int argc, char** argv, long* rseed, int*nevents, char**data_dir, char**user_output, int*flag);
+Hep3Vector PointPosition();
+bool IsExcited();
+double GetMass(int pdg);
+Hep3Vector PointPv(double Energy);
+map<int,double> pdg_mass;
+double PI = 3.1415926;
+
+void LoadReadFile(TString infile);
+void LoadOutTree();
+void initial();
+int GetTreePars(int evtid);
+int GetIsoP(int evtid);
+int GetIsoN(int evtid);
+void ReadTreeEvent(int id , int evtid);
+void ReadIsoInfo(int pars, int evtid);
+void ReadGammaInfo(int pars);//p1/2
+void ReadDeexInfo(int pars, int resp, int resn, TString datadir);
+bool ISSTABLEFLAG(int evtid);
+bool ISONEFLAG(int evtid);
+bool ISTWOFLAG(int evtid);
+bool ISNOISOFLAG(int evtid);
+int GetType(int evtid);
+
+int m_pPdg;
+int m_tPdg;
+double m_pEn;
+int m_channelID;
+int m_isoPdg;
+double m_isoPx,m_isoPy, m_isoPz;
+int m_Npars;
+int m_pdg[100];
+double m_px[100];//GeV
+double m_py[100];//GeV
+double m_pz[100];//GeV
+double m_energy[100];//GeV
+double m_mass[100];//GeV
+
+TFile *genieFile;
+TTree *geTree;
+
+TFile *outFile;
+TTree *outTree;
+
+int t_evtID;
+int t_pPdg;
+int t_tPdg;
+double t_pEn;
+int t_channelID;
+int t_deexID;
+int t_isoPdg;
+int t_Npars;
+int t_type;
+int t_pdg[100];
+double t_px[100];//GeV
+double t_py[100];//GeV
+double t_pz[100];//GeV
+FILE* stream = stdout;
+
+Hep3Vector pv;
+int gammapdg = 22;
+double gammamass = 0;
+int count =0;
+
+bool IsExcitedFlag = false;
+bool IsStableFlag = false;
+bool IsOneFlag = false;
+bool IsTwoFlag = false;
+bool IsNoIsoFlag = false;
+
+int main(int argc, char** argv) {
+  long rseed = 0;
+  int nEvents = 1000000;
+  char* data_dir = NULL;
+  char* outFilename = NULL;
+  char* user_output = NULL;
+  int flag=2;
+  ProcessArgs(argc,argv,&rseed,&nEvents,&data_dir, &user_output, &flag);
+  std::string path_name = " ";  
+  if(data_dir == NULL) {
+    const char* juno_path = getenv("JUNOTOP");
+    path_name = juno_path;
+    path_name += "/data/Generator/DSNB/data";
+  } else {
+    path_name = data_dir;
+  }
+  
+  cout << path_name << endl;
+  
+  if(outFilename!=NULL) {
+    stream = fopen(outFilename, "w");
+    if(stream==NULL) {
+      printf("Please enetr a valid filename.\n");
+      Usage();
+      exit(0);
+    }
+  }
+  bool IsExistUserFile = false;
+  if(user_output != NULL) { IsExistUserFile = true;}
+  if(IsExistUserFile == true) {
+    TString outfilename = user_output;                                                                                        
+    outfilename += "/gen_" ;
+    outfilename += rseed;
+    outfilename += ".root";
+    outFile = new TFile(outfilename, "RECREATE"); 
+    LoadOutTree();
+  }
+
+  TString genieFilename = path_name;
+  if(flag==1) {
+    genieFilename += "/genie_ccdata.root";
+  }else if(flag==2) {
+    genieFilename += "/genie_data.root";
+  }else if(flag==3) {
+    genieFilename += "/nuwro_nc.root";
+  }else if(flag==4) {
+    genieFilename += "/nuwro_nc_rfg990.root";
+  }else if(flag==5) {
+    genieFilename += "/nuwro_nc_rfg1350.root";
+  }else if(flag==6) {
+    genieFilename += "/nuwro_nc_rfg990withTEM.root";
+  }else if(flag==7) {
+    genieFilename += "/nuwro_nc_sf990.root";
+  }else {
+    cout << "ERROR!!!!! Please choose your input file" << endl;
+  }
+
+  LoadReadFile(genieFilename);
+   
+  gRandom->SetSeed(rseed);
+  bool IsExcitedFlag = false;
+  bool IsStableFlag = false;
+  bool IsOneFlag = false;
+  bool IsTwoFlag = false;
+  bool IsNoIsoFlag = false;
+  
+  int nentries = (int)geTree->GetEntries();
+  for(int i=0; i<nEvents; i++) {
+    int ievent = (int)(gRandom->Uniform()*(nentries-1));
+    initial(); 
+    IsStableFlag = false;
+    IsOneFlag = false;
+    IsTwoFlag = false;
+    IsNoIsoFlag = false;
+    
+    int PARS = GetTreePars(ievent);
+    IsStableFlag = ISSTABLEFLAG(ievent);
+    IsOneFlag = ISONEFLAG(ievent);
+    IsTwoFlag = ISTWOFLAG(ievent);
+    IsNoIsoFlag = ISNOISOFLAG(ievent);
+    if(IsNoIsoFlag == true) {
+      fprintf(stream,"%d\n", PARS);
+      ReadTreeEvent(i, ievent);
+      t_Npars=PARS;
+    }else if(IsStableFlag==true){
+      fprintf(stream,"%d\n", PARS+1);
+      ReadTreeEvent(i, ievent);
+      ReadIsoInfo(PARS, ievent);
+      t_Npars=PARS+1;
+    }else if(IsOneFlag==true){
+      double oneflag = gRandom->Uniform(0,1);
+      if(oneflag>(1./3.) && oneflag<(7./15.)) {
+        fprintf(stream,"%d\n", PARS+2);
+        ReadTreeEvent(i, ievent);
+        ReadGammaInfo(PARS);
+        ReadIsoInfo(PARS+1, ievent);
+        t_Npars=PARS+2; 
+        t_type = GetType(ievent) + 20000; 
+      }else if(oneflag<=(1./3.)) {
+        int rp = GetIsoP(ievent);
+        int rn = GetIsoN(ievent);
+        ReadDeexInfo(PARS, rp, rn, path_name);
+        ReadTreeEvent(i, ievent);
+        t_Npars=count;
+        t_type = GetType(ievent) + 30000;
+      }else if(oneflag>=(7./15.)) {
+        fprintf(stream,"%d\n", PARS+1);
+        ReadTreeEvent(i, ievent);
+        ReadIsoInfo(PARS, ievent);
+        t_Npars=PARS+1;
+        t_type = GetType(ievent) + 10000;
+      }
+    }else if(IsTwoFlag==true) {
+      double twoflag = gRandom->Uniform(0,1);
+      if(twoflag<=(1./7.)) {
+        int rp = GetIsoP(ievent);
+        int rn = GetIsoN(ievent);
+        ReadDeexInfo(PARS, rp, rn, path_name);
+        ReadTreeEvent(i, ievent);
+        t_Npars=count;
+        t_type = GetType(ievent) + 30000;
+      }else {
+        fprintf(stream,"%d\n", PARS+1);
+        ReadTreeEvent(i, ievent);
+        ReadIsoInfo(PARS, ievent);
+        t_Npars=PARS+1;
+        t_type = GetType(ievent) + 10000;
+      }
+    }else {
+      IsExcitedFlag=IsExcited();
+      if(IsExcitedFlag==true) {
+        int rp = GetIsoP(ievent);
+        int rn = GetIsoN(ievent);
+        ReadDeexInfo(PARS, rp, rn, path_name);
+        ReadTreeEvent(i, ievent);
+        t_Npars=count;
+      }else {
+        fprintf(stream,"%d\n", PARS+1);
+        ReadTreeEvent(i, ievent);
+        ReadIsoInfo(PARS, ievent);
+        t_Npars=PARS+1;
+      }
+    } 
+    
+    if(IsExistUserFile == true){ outTree->Fill();}
+		}
+  if(IsExistUserFile == true){
+    outFile->cd();
+    outTree->Write();
+    outFile->Close();
+  } 
+  
+  return 0;
+  
+}
+
+void initial() {
+  t_evtID = 0;
+  t_Npars = 0;
+  t_type = 0;
+  t_pPdg = 0; 
+  t_tPdg = 0;
+  t_pEn = 0; 
+  t_isoPdg = 0;
+  t_channelID = 0;
+  t_deexID = 0;   
+
+  for(int jj=0; jj<100; jj++) {
+    t_pdg[jj] = 0;
+    t_px[jj] = 0.;
+    t_py[jj] = 0.;
+    t_pz[jj] = 0.;
+  }   
+}
+void LoadReadFile(TString infile) {
+
+  genieFile = TFile::Open(infile,"read");
+  if(!genieFile) {
+    cout << "Can not find file: " << infile << endl;
+    exit(-1);
+  }
+  geTree = (TTree*)genieFile->Get("particleT");
+  geTree->SetBranchAddress("pPdg",&m_pPdg);
+  geTree->SetBranchAddress("tPdg",&m_tPdg);
+  geTree->SetBranchAddress("pEn",&m_pEn);
+  geTree->SetBranchAddress("channelID",&m_channelID);
+  geTree->SetBranchAddress("m_isoPdg",&m_isoPdg);
+  geTree->SetBranchAddress("m_isoPx",&m_isoPx);
+  geTree->SetBranchAddress("m_isoPy",&m_isoPy);
+  geTree->SetBranchAddress("m_isoPz",&m_isoPz);
+  geTree->SetBranchAddress("Npars",&m_Npars);
+  geTree->SetBranchAddress("pdg",m_pdg);
+  geTree->SetBranchAddress("px",m_px);
+  geTree->SetBranchAddress("py",m_py);
+  geTree->SetBranchAddress("pz",m_pz);
+  geTree->SetBranchAddress("energy",m_energy);
+  geTree->SetBranchAddress("mass",m_mass);
+
+}
+void LoadOutTree() {
+  
+  outTree = new TTree("genEvt", "genEvent");
+  outTree->Branch("t_evtID",&t_evtID,"t_evtID/I");
+  outTree->Branch("t_pPdg",&t_pPdg,"t_pPdg/I");
+  outTree->Branch("t_tPdg",&t_tPdg,"t_tPdg/I");
+  outTree->Branch("t_pEn",&t_pEn,"t_pEn/D");
+  outTree->Branch("t_channelID",&t_channelID,"t_channelID/I");
+  outTree->Branch("t_deexID",&t_deexID,"t_deexID/I");
+  outTree->Branch("t_isoPdg",&t_isoPdg,"t_isoPdg/I");
+  outTree->Branch("t_Npars",&t_Npars,"t_Npars/I");
+  outTree->Branch("t_type",&t_type,"t_type/I");
+  outTree->Branch("t_pdg",t_pdg,"t_pdg[t_Npars]/I");
+  outTree->Branch("t_px",t_px,"t_px[t_Npars]/D");
+  outTree->Branch("t_py",t_py,"t_py[t_Npars]/D");
+  outTree->Branch("t_pz",t_pz,"t_pz[t_Npars]/D");
+}
+
+int GetTreePars(int evtid) {
+  geTree->GetEntry(evtid);
+  return m_Npars;
+}
+
+int GetIsoP(int evtid) {
+  geTree->GetEntry(evtid);
+  int rp = int((m_isoPdg-1000000000)/10000);
+  return rp;
+}
+
+int GetIsoN(int evtid) {
+  geTree->GetEntry(evtid);
+  int rp = int((m_isoPdg-1000000000)/10000);
+  int rn = int((m_isoPdg-1000000000-rp*10000)/10)-rp;
+  return rn;
+}
+
+bool ISSTABLEFLAG(int evtid) {
+  bool isstable = false;
+  geTree->GetEntry(evtid);
+  int rp = GetIsoP(evtid);
+  int rn = GetIsoN(evtid);
+  if(m_isoPdg==1000060120 || m_isoPdg==1000040080 || m_isoPdg == 1000030060 || rp>6 || rn>6) {
+    isstable = true;
+  }
+  return isstable;
+}
+
+bool ISONEFLAG(int evtid) {
+  bool isone = false;
+  geTree->GetEntry(evtid);
+  if(m_isoPdg==1000060110 || m_isoPdg==1000050110 || m_isoPdg == 1000050100){
+    isone = true;
+  }
+  return isone;
+}
+
+bool ISTWOFLAG(int evtid) {
+  bool istwo = false;
+  geTree->GetEntry(evtid);
+  if(m_isoPdg==1000060100 || m_isoPdg==1000040100) {
+    istwo = true;
+  }
+  return istwo;
+}
+
+bool ISNOISOFLAG(int evtid) {
+  bool isnoiso = false;
+  geTree->GetEntry(evtid);
+  if(m_isoPdg==0||m_channelID==2||m_channelID==3) {
+    isnoiso = true;
+  }
+  return isnoiso;
+}
+int GetType(int evtid) {
+   int type = 0;
+   geTree->GetEntry(evtid);
+   if(m_isoPdg==1000060110) {type = 611;}
+   if(m_isoPdg==1000050110) {type = 511;}
+   if(m_isoPdg==1000050100) {type = 510;}
+   if(m_isoPdg==1000060100) {type = 610;}
+   if(m_isoPdg==1000040100) {type = 410;}
+   return type;
+}
+  
+void ReadTreeEvent(int id, int evtid) {
+  geTree->GetEntry(evtid);
+  t_evtID = id;
+  t_pPdg = m_pPdg;
+  t_tPdg = m_tPdg;
+  t_isoPdg = m_isoPdg;
+  t_channelID = m_channelID;
+  t_pEn = m_pEn;  
+  for(int jj=0;jj<m_Npars; jj++) {
+    fprintf(stream,"1\t%d 0 0 %f %f %f %f\n", m_pdg[jj], m_px[jj], m_py[jj], m_pz[jj], m_mass[jj]);
+    t_pdg[jj] = m_pdg[jj];
+    t_px[jj] = m_px[jj];
+    t_py[jj] = m_py[jj];
+    t_pz[jj] = m_pz[jj];
+  }
+}
+
+void ReadIsoInfo(int pars, int evtid) {
+  geTree->GetEntry(evtid);
+  double isomass = GetMass(m_isoPdg);
+  fprintf(stream,"1\t%d 0 0 %f %f %f %f\n", m_isoPdg, m_isoPx, m_isoPy, m_isoPz, isomass);
+  t_pdg[pars] = m_isoPdg;
+  t_px[pars] = m_isoPx;
+  t_py[pars] = m_isoPy;
+  t_pz[pars] = m_isoPz;
+  
+}
+
+void ReadGammaInfo(int pars) {
+  pv = PointPv(2.e-3);
+  fprintf(stream,"1\t%d 0 0 %f %f %f %f\n", gammapdg, pv.x(), pv.y(), pv.z(), gammamass);
+  t_pdg[pars] = gammapdg;
+  t_px[pars] = pv.x();
+  t_py[pars] = pv.y();
+  t_pz[pars] = pv.z();
+}
+
+void ReadDeexInfo(int pars, int resp, int resn, TString datadir) {
+  vector<double> afterDeexEn;
+  vector<int> afterDeexPDG;
+  deex*DEProcess = new deex(resp,resn, datadir);
+  DEProcess->GetDeeProcess();
+  afterDeexEn = DEProcess->GetDeeParE();
+  afterDeexPDG = DEProcess->GetDeePDG();
+  int residulZafterDee = DEProcess->GetResNuelZ();
+  int residulNafterDee = DEProcess->GetResNuelN();
+  int deexID = DEProcess->GetDeexChannelID();
+  t_deexID = deexID;
+  count = 0;
+  count = pars + afterDeexEn.size();
+  if(residulZafterDee>=3 && residulNafterDee>=3) {
+    count = count+2;
+  }
+  fprintf(stream,"%d\n", count);
+  for(int kk=0; kk<afterDeexEn.size(); kk++) {
+    pv = PointPv(afterDeexEn[kk]);
+    double MASS = GetMass(afterDeexPDG[kk]);
+    fprintf(stream,"1\t%d 0 0 %f %f %f %f\n", afterDeexPDG[kk], pv.x(), pv.y(), pv.z(), MASS);
+    t_pdg[pars+kk] = afterDeexPDG[kk];
+    t_px[pars+kk] = pv.x();
+    t_py[pars+kk] = pv.y();
+    t_pz[pars+kk] = pv.z();
+  } 
+  if(residulZafterDee>=3 && residulNafterDee>=3) {
+    double nextDeexEn = DEProcess->GetDeeGammaProcess(residulZafterDee,residulNafterDee);
+    pv = PointPv(nextDeexEn);
+    fprintf(stream,"1\t%d 0 0 %f %f %f %f\n", gammapdg, pv.x(), pv.y(), pv.z(), gammamass);
+    t_pdg[count-2] = gammapdg;
+    t_px[count-2] = pv.x();
+    t_py[count-2] = pv.y();
+    t_pz[count-2] = pv.z();
+    int isoPdgafterDeex = 1000000000 + residulZafterDee*10000 + (residulZafterDee+residulNafterDee)*10;
+    double isomassafterDeex = GetMass(isoPdgafterDeex);
+    fprintf(stream,"1\t%d 0 0 %f %f %f %f\n", isoPdgafterDeex, m_isoPx, m_isoPy, m_isoPz, isomassafterDeex);
+    t_pdg[count-1] = isoPdgafterDeex;
+    t_px[count-1] = m_isoPx;
+    t_py[count-1] = m_isoPy;
+    t_pz[count-1] = m_isoPz;
+  }
+}
+ 
+Hep3Vector PointPosition() {
+
+  Hep3Vector detectorCenter;
+  double xoffset = 0;
+  double yoffset = 0;
+  double zoffset = 0;
+  detectorCenter = Hep3Vector(xoffset,yoffset,zoffset);
+  double xpoint = 0;
+  double ypoint = 0;
+  double zpoint = 0;
+  double rpoint = 0;
+  double radiuofBall = 17700; //mm
+  bool IsPos = false;
+
+  do { //  
+    xpoint = gRandom->Uniform(-1.*radiuofBall , radiuofBall);
+    ypoint = gRandom->Uniform(-1.*radiuofBall , radiuofBall);
+    zpoint = gRandom->Uniform(-1.*radiuofBall , radiuofBall);
+    rpoint = sqrt(xpoint*xpoint + ypoint*ypoint + zpoint*zpoint);
+    if(rpoint<radiuofBall) IsPos=true;
+  } while (IsPos == false);
+  Hep3Vector Point;
+  Point = Hep3Vector(xpoint,ypoint,zpoint);
+  return Point;
+
+}
+Hep3Vector PointPv(double Energy) {
+  double xdir = 0;
+  double ydir = 0;
+  double zdir = 0;
+  double rdir = 0;
+  double theta = 0.;
+  double phi = 0.;
+
+  theta = gRandom->Uniform(0., PI);
+  phi = gRandom->Uniform(0,2*PI);
+  xdir = sin(theta) * cos(phi);
+  ydir = sin(theta) * sin(phi);
+  zdir = cos(theta);
+  rdir = sqrt(xdir*xdir+ydir*ydir+zdir*zdir);
+  double px = xdir*Energy*1e-3;//GeV
+  double py = ydir*Energy*1e-3;//GeV
+  double pz = zdir*Energy*1e-3;//GeV
+  Hep3Vector Pv;
+  Pv = Hep3Vector(px,py,pz);
+  return Pv;
+}
+
+bool IsExcited() {
+  bool isExc = false;
+  double flag = gRandom->Uniform(0,1);
+  double chance = 1./3.;
+  if(flag <= chance) {
+    isExc = true;
+  } else {
+    isExc = false;
+  }
+  return isExc;
+}
+
+double GetMass(int pdg) {
+
+  pdg_mass.clear();
+  pdg_mass[22] = 0;
+  pdg_mass[2112] = 0.93957;//GeV
+  pdg_mass[2212] = 0.93827;
+  pdg_mass[1000010020] = 1.8756;
+  pdg_mass[1000010030] = 2.8089;
+  pdg_mass[1000020030] = 2.8084;
+  pdg_mass[1000020040] = 3.7274;
+  pdg_mass[1000030060] = 5.6015;
+  pdg_mass[1000030070] = 6.5335;
+  pdg_mass[1000030080] = 7.4708;
+  pdg_mass[1000030090] = 8.4061;
+  pdg_mass[1000040070] = 6.5344;
+  pdg_mass[1000040080] = 7.4548;
+  pdg_mass[1000040090] = 8.3925;
+  pdg_mass[1000040100] = 9.3249;
+  pdg_mass[1000050080] = 7.4728;
+  pdg_mass[1000050090] = 8.3935;
+  pdg_mass[1000050100] = 9.3244;
+  pdg_mass[1000050110] = 10.2522;
+  pdg_mass[1000060090] = 8.4100;
+  pdg_mass[1000060100] = 9.3280;
+  pdg_mass[1000060110] = 10.2542;
+  pdg_mass[1000060120] = 11.1748;
+  return pdg_mass[pdg];
+
+}
+void ProcessArgs(int argc, char** argv, long* rseed,int*nevents,  char**data_dir, char**user_output,int*flag) {
+  for(int i=1; i<argc;i++) {
+    if( strcmp(argv[i], "-seed")==0) {
+      i++;
+      sscanf(argv[i],"%ld",rseed);
+    }else if(strcmp(argv[i],"-n") == 0) {
+      i++;
+      sscanf(argv[i],"%d",nevents);
+    } else if( strcmp(argv[i],"-data_dir") == 0) {
+      i++;
+      *data_dir = new char[strlen(argv[i])+1];
+      strcpy(*data_dir, argv[i]);
+    } else if(strcmp(argv[i],"-user_output")==0) {
+      i++;
+      *user_output = new char[strlen(argv[i])+1];
+      strcpy(*user_output, argv[i]);
+    } else if(strcmp(argv[i],"-f")==0) {
+      i++;
+      sscanf(argv[i],"%d",flag);
+    } 
+    else if (strcmp(argv[i],"-h")==0){
+      Usage();
+      exit(0);
+    }
+  }
+}
+
+void Usage() {
+  cout << "eg. \"DSNB-NC.exe -seed 10 -n 1000 -f 2\" " << endl;
+}
+
+
