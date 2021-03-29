@@ -50,10 +50,13 @@ int main(int argc, char** argv)
   cout<<path_name<<endl;
   LoadReadFile(params.data_dir+params.GenieFilename);
   gRandom->SetSeed(params.rseed);
-  
+   
+ 
   
   bool IsStableFlag = false;
   bool IsNoIsoFlag = false;
+
+   DEProcess = new deex;
 
   int nentries = (int)geTree->GetEntries();
   for (int i = 0; i < params.nEvents; i++) {
@@ -357,42 +360,48 @@ void ReadIsoInfo(int pars, int evtid)
 
 void ReadDeexInfo(int pars, int resp, int resn, int exetag, TString datadir)
 {
-  vector<double> afterDeexEn;
-  vector<int> afterDeexPDG;
-  deex* DEProcess = new deex(resp, resn, exetag, datadir);
-  DEProcess->GetDeeProcess();
-  afterDeexEn = DEProcess->GetDeeParE();
-  afterDeexPDG = DEProcess->GetDeePDG();
-  int residulZafterDee = DEProcess->GetResNuelZ();
-  int residulNafterDee = DEProcess->GetResNuelN();
-  int deexID = DEProcess->GetDeexChannelID();
-  t_deexID = deexID;
+ // vector<double> afterDeexEn;
+ // vector<int> afterDeexPDG;
+  AfterDeexInfo info;
+  DEProcess->InputParams(resp, resn, exetag, datadir);
+  
+ // deex* DEProcess = new deex(resp, resn, exetag, datadir);
+  //DEProcess->GetDeeProcess();
+  info = DEProcess -> GetAfterDeexInfo();
+ // afterDeexEn = DEProcess->GetDeeParE();
+ // afterDeexPDG = DEProcess->GetDeePDG();
+ // int residulZafterDee = DEProcess->GetResNuelZ();
+ // int residulNafterDee = DEProcess->GetResNuelN();
+ // int deexID = DEProcess->GetDeexChannelID();
+ // t_deexID = deexID;
+  t_deexID = info.DeexChannelID;
   t_deEx = double(exetag);
   count00 = 0;
-  count00 = pars + afterDeexEn.size();
-  if (residulZafterDee >= 3 && residulNafterDee >= 3) {
+  count00 = pars + info.NPars;
+ // count00 = pars + afterDeexEn.size();
+  if (info.ResidualZ >= 3 && info.ResidualN >= 3) {
     count00 = count00 + 1;
   }
   fprintf(stream, "%d\n", count00);
-  for (int kk = 0; kk < int(afterDeexEn.size()); kk++) {
+  for (int kk = 0; kk < info.NPars; kk++) {
     //pv = PointPv(afterDeexEn[kk]);
-    double MASS = GetMass(afterDeexPDG[kk]);
-    pv = PointPv(afterDeexEn[kk], MASS);
-    fprintf(stream, "1\t%d 0 0 %f %f %f %f\n", afterDeexPDG[kk], pv.x(), pv.y(), pv.z(), MASS);
-    t_pdg[pars + kk] = afterDeexPDG[kk];
+    double MASS = GetMass(info.Pdg[kk]);
+    pv = PointPv(info.Energy[kk], MASS);
+    fprintf(stream, "1\t%d 0 0 %f %f %f %f\n", info.Pdg[kk], pv.x(), pv.y(), pv.z(), MASS);
+    t_pdg[pars + kk] = info.Pdg[kk];
    // t_tag[pars + kk] = 1;
     t_px[pars + kk] = pv.x();
     t_py[pars + kk] = pv.y();
     t_pz[pars + kk] = pv.z();
     t_mass[pars+kk] = MASS;
     t_ek[pars +kk] = sqrt( t_px[pars + kk]* t_px[pars + kk] + t_py[pars + kk]*t_py[pars + kk] +  t_pz[pars + kk]* t_pz[pars + kk] +  t_mass[pars+kk]* t_mass[pars+kk]) -  t_mass[pars+kk];
-    t_ektest[pars+kk] = afterDeexEn[kk];
+    t_ektest[pars+kk] = info.Energy[kk];
   }
-  if (residulZafterDee >= 3 && residulNafterDee >= 3) {
-    int isoPdgafterDeex = 1000000000 + residulZafterDee * 10000 + (residulZafterDee + residulNafterDee) * 10;
-    double isomassafterDeex = GetMass(isoPdgafterDeex);
-    fprintf(stream, "1\t%d 0 0 %f %f %f %f\n", isoPdgafterDeex, m_isoPx, m_isoPy, m_isoPz, isomassafterDeex);
-    t_pdg[count00 - 1] = isoPdgafterDeex;
+  if (info.ResidualN >= 3 && info.ResidualZ >= 3) {
+   // int isoPdgafterDeex = 1000000000 + info.ResidualZ * 10000 + (info.ResidualZ+info.ResidualN) * 10;
+    double isomassafterDeex = GetMass(info.ResidualPdg);
+    fprintf(stream, "1\t%d 0 0 %f %f %f %f\n", info.ResidualPdg, m_isoPx, m_isoPy, m_isoPz, isomassafterDeex);
+    t_pdg[count00 - 1] = info.ResidualPdg;
    // t_tag[count00 - 1] = 3;
     t_px[count00 - 1] = m_isoPx;
     t_py[count00 - 1] = m_isoPy;
@@ -415,7 +424,7 @@ Hep3Vector PointPv(double Energy, double Mass)
   double Pval = sqrt(pow(Ekval,2)+2*Mass*Ekval);
 
   cost = 1-2*gRandom->Uniform(0., 1.);
-  sint = sqrt((1-cost*cost));
+  sint = sqrt(1-cost*cost);
   phi = gRandom->Uniform(0, 2 * PI);
   xdir = sint * cos(phi);
   ydir = sint * sin(phi);

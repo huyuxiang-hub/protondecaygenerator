@@ -10,25 +10,55 @@
 #include <map>
 #include <vector>
 
+struct  AfterDeexInfo{
+    AfterDeexInfo(){
+    Energy.clear();
+    Pdg.clear();
+    ResidualZ = 0;
+    ResidualN = 0;
+    DeexChannelID = 0;
+    NPars = 0 ;   
+    ResidualPdg = 0 ;
+
+    }  
+
+
+    std::vector<double> Energy;
+    std::vector<int>    Pdg;
+    int  ResidualZ;
+    int  ResidualN;
+    int  DeexChannelID;
+    int  NPars;
+    int  ResidualPdg;
+    
+    
+};
+
+
+
 class deex {
 
   public:
-    deex(int Z, int N, int Extag, TString datadir);
+    deex();
     ~deex() {};
    
     void initial(); 
     void CloseDeeFile();
-    TString isotopename(int Z);
     void LoadDeeData();
     void GetDeeProcess();
-    
+    void InputParams(int Z, int N, int Extag, TString datadir);
+    AfterDeexInfo &  GetAfterDeexInfo(){ GetDeeProcess(); return aAfterDeexInfo;}
+     
+    //-----------------------------------//
     std::vector<double> GetDeeParE();
     std::vector<int> GetDeePDG();
     int GetResNuelZ();
     int GetResNuelN();
     int GetDeexChannelID();
+   
+  private:
+   AfterDeexInfo  aAfterDeexInfo;            
 
-            
   private:
     TFile *Deefile;
     TTree *Nucldee;
