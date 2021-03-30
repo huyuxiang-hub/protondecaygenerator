@@ -36,37 +36,43 @@ struct Params{
 };
 
 */
+//class  ProtonDecayEvent;
 
 int main(int argc, char** argv)
 {
   
   Params params;
-
+ 
 //  char* outFilename = NULL;
 //  char* user_output = NULL;
 //  int flag = 2;
   ProcessArgs(argc, argv, params);
   TString path_name = params.data_dir+params.GenieFilename;
   cout<<path_name<<endl;
-  LoadReadFile(params.data_dir+params.GenieFilename);
+  
+  ProtonDecayEvent* aEvent = new ProtonDecayEvent(path_name);
+
+ // LoadReadFile(params.data_dir+params.GenieFilename);
   gRandom->SetSeed(params.rseed);
-   
+  deex* DEProcess = new deex(params.data_dir);  
  
   
-  bool IsStableFlag = false;
-  bool IsNoIsoFlag = false;
+ // bool IsStableFlag = false;
+ // bool IsNoIsoFlag = false;
 
-   DEProcess = new deex;
-
-  int nentries = (int)geTree->GetEntries();
+ // DEProcess = new deex;
+   
+ 
+  int nentries = aEvent->GetEntries();
   for (int i = 0; i < params.nEvents; i++) {
     int ievent = (int)(gRandom->Uniform() * (nentries - 1));
-    initial();
-    IsStableFlag = false;
-    IsNoIsoFlag = false;
+    aEvent->LoadEvent(ievent);
+  //  initial();
+  //  IsStableFlag = false;
+  //  IsNoIsoFlag = false;
 
 
-    int PARS = GetTreePars(ievent);
+    int PARS = aEvent->GetNpars();
 //    bool isQEL = ISQEL(ievent);
 //    bool ishigh = ISHighEEvt(ievent);
     //if(isQEL==false || ishigh== true) {
@@ -74,33 +80,50 @@ int main(int argc, char** argv)
       i--;
       continue;
     }*/
-    IsStableFlag = ISSTABLEFLAG(ievent);
-    IsNoIsoFlag = ISNOISOFLAG(ievent);
-    if (IsNoIsoFlag == true) {
-      fprintf(stream, "%d\n", PARS);
-      ReadTreeEvent(i, ievent);
-      t_Npars = PARS;
-    } else if (IsStableFlag == true) {
-      fprintf(stream, "%d\n", PARS + 1);
-      ReadTreeEvent(i, ievent);
-      ReadIsoInfo(PARS, ievent);
-      t_Npars = PARS + 1;
+   // IsStableFlag = ISSTABLEFLAG(ievent);
+   // IsNoIsoFlag = ISNOISOFLAG(ievent);
+    if (aEvent->GetIsNoIsoFlag()) {
+      aEvent-> PrintTotalPars(PARS);
+      //std::cout<<"isnoisoflag="<<aEvent->GetIsNoIsoFlag()<<endl;
+     // fprintf(stream, "%d\n", PARS);
+      //ReadTreeEvent(i, ievent);
+      aEvent->PrintNormPars();
+     // t_Npars = PARS;
+    } else if (aEvent -> GetIsStableFlag() ) {
+      aEvent->PrintTotalPars(PARS+1);
+     // fprintf(stream, "%d\n", PARS + 1);
+     // ReadTreeEvent(i, ievent);
+      aEvent->PrintNormPars();
+     // ReadIsoInfo(PARS, ievent);
+      aEvent->PrintIos();
+     // t_Npars = PARS + 1;
     } else {
-
-      int rp = GetIsoP(ievent);
-      int rn = GetIsoN(ievent);
-      double exe = getExE(rp, rn);
+      
+      int rp = aEvent->GetIsoP();
+      int rn = aEvent->GetIsoN();
+      std::cout<<"rp="<<rp<<std::endl;
+      std::cout<<"rn="<<rn<<std::endl;
+    
+      DEProcess->SetParams(rp,rn);
+      
+      double exe = DEProcess-> GetExE();
+     // std::cout<<"exe="<<exe<<endl;
 
       if (exe > 0) {
-        int exeTag = int(exe);
-        ReadDeexInfo(PARS, rp, rn, exeTag, params.data_dir);
-        ReadTreeEvent(i, ievent);
-        t_Npars = count00;
+        aEvent -> Info = DEProcess -> GetAfterDeexInfo();
+        
+      
+        aEvent->PrintDeexInfo();
+        aEvent->PrintNormPars();
+        //ReadTreeEvent(i, ievent);
+      //  t_Npars = count00;
       } else {
-        fprintf(stream, "%d\n", PARS + 1);
-        ReadTreeEvent(i, ievent);
-        ReadIsoInfo(PARS, ievent);
-        t_Npars = PARS + 1;
+        aEvent->PrintTotalPars(PARS+1);
+        aEvent->PrintNormPars();
+        aEvent->PrintIos();   
+       // ReadTreeEvent(i, ievent);
+       // ReadIsoInfo(PARS, ievent);
+       // t_Npars = PARS + 1;
       }
     }
    /* std::cout << "---> Jie Check === simulated particles (event " << i << " ) "<< "\t";
@@ -118,11 +141,11 @@ int main(int argc, char** argv)
     outTree->Write();
     outFile->Close();
   }*/
-    
+  delete DEProcess;  
   return 0;
 }
 
-void initial()
+/*void initial()
 {
   t_evtID = 0;
   t_Npars = 0;
@@ -153,8 +176,8 @@ void initial()
     t_ektest[jj] = 0.;
     t_mass[jj] = 0.;
   }
-}
-void LoadReadFile(TString infile)
+}*/
+/*void LoadReadFile(TString infile)
 {
 
   genieFile = TFile::Open(infile, "read");
@@ -188,7 +211,7 @@ void LoadReadFile(TString infile)
   geTree->SetBranchAddress("energy", m_energy);
   geTree->SetBranchAddress("mass", m_mass);
   geTree->SetBranchAddress("energyT", m_energyT); 
-}
+}*//*
 void LoadOutTree()
 {
 
@@ -220,7 +243,8 @@ void LoadOutTree()
   outTree->Branch("t_ektest", t_ektest, "t_ektest[t_Npars]/D");
   outTree->Branch("t_mass", t_mass, "t_mass[t_Npars]/D");
 }
-
+*/
+/*
 int GetTreePars(int evtid)
 {
   geTree->GetEntry(evtid);
@@ -241,7 +265,8 @@ int GetIsoN(int evtid)
   int rn = int((m_isoPDG - 1000000000 - rp * 10000) / 10) - rp;
   return rn;
 }
-
+*/
+/*
 bool ISSTABLEFLAG(int evtid)
 {
   bool isstable = false;
@@ -254,12 +279,13 @@ bool ISSTABLEFLAG(int evtid)
   return isstable;
 }
 
-
+*/
+/*
 bool ISNOISOFLAG(int evtid)
 {
   bool isnoiso = false;
   geTree->GetEntry(evtid);
-  if (m_isoPDG == 0 /*|| m_channelID == 2 || m_channelID == 3*/) {
+  if (m_isoPDG == 0 || m_channelID == 2 || m_channelID == 3*) {
     isnoiso = true;
   }
   int rp = GetIsoP(evtid);
@@ -292,7 +318,7 @@ int GetType(int evtid)
   }
   return type;
 }
-
+*/
 /*bool ISQEL(int evtid)
 {
   bool isqel = false;
@@ -302,7 +328,7 @@ int GetType(int evtid)
   }
   return isqel;
 }
-
+*//*
 bool ISHighEEvt(int evtid)
 {
   bool ishighe = false;
@@ -321,6 +347,7 @@ bool ISHighEEvt(int evtid)
   return ishighe;
 }
 */
+/*
 void ReadTreeEvent(int id, int evtid)
 {
   geTree->GetEntry(evtid);
@@ -527,7 +554,7 @@ double GetMass(int pdg)
   pdg_mass[1000060110] = 10.2542;
   pdg_mass[1000060120] = 11.1748;
   return pdg_mass[pdg];
-}
+}*/
 void ProcessArgs(int argc, char** argv, Params& params)
 {
   for (int i = 1; i < argc; i++) {
